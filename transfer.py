@@ -60,6 +60,22 @@ def timestamp_to_beijing(timestamp):
     beijing_time = utc_time.astimezone(beijing_tz)
     return beijing_time.strftime('%Y-%m-%d %H:%M:%S')
 
+def extract_time_features(times):
+    if not times:
+        return {}
+    times = np.array(times)
+    intervals = np.diff(times).astype(float)  # Ensure intervals are of float type
+    return {
+        'First Arrival Time': float(times[0]),
+        'Last Arrival Time': float(times[-1]),
+        'Duration': float(times[-1] - times[0]),
+        'Average Interval': np.mean(intervals) if len(intervals) > 0 else 0,
+        'Standard Deviation of Intervals': np.std(intervals) if len(intervals) > 0 else 0,
+        'Variance of Intervals': np.var(intervals) if len(intervals) > 0 else 0,
+        'Median Interval': np.median(intervals) if len(intervals) > 0 else 0,
+        'Mode Interval': float(stats.mode(intervals, keepdims=False)[0]) if len(intervals) > 0 else 0,  # Set keepdims=False
+        'Skewness of Intervals': stats.skew(intervals) if len(intervals) > 0 and len(np.unique(intervals)) > 1 else 0  # Check if intervals are identical
+    }
 
 def extract_tcp_flows(pcap_files, output_file, time_threshold=10):
     all_flow_records = []  # 用于存储所有文件的流记录
@@ -159,6 +175,9 @@ def extract_tcp_flows(pcap_files, output_file, time_threshold=10):
                 forward_packet_count, reverse_packet_count = reverse_packet_count, forward_packet_count
                 forward_bytes, reverse_bytes = reverse_bytes, forward_bytes
 
+            # 提取时间特征
+            time_features = extract_time_features(flow_times[flow_key])
+
             # 汇总流数据并标记来源文件
             all_flow_records.append({
                 'Tor_IP': Tor_IP,
@@ -176,7 +195,8 @@ def extract_tcp_flows(pcap_files, output_file, time_threshold=10):
                 'Start Time': start_time,
                 'End Time': end_time,
                 'Duration (s)': duration,  # 添加持续时间（单位：秒）
-                'Source File': os.path.basename(pcap_file)  # 添加来源文件名
+                'Source File': os.path.basename(pcap_file),  # 添加来源文件名
+                **time_features  # 添加时间特征
             })
 
         # 合并重复流（前五列数据相同）并合并它们的包数和持续时间
@@ -190,7 +210,6 @@ def extract_tcp_flows(pcap_files, output_file, time_threshold=10):
             else:
                 # 合并包数和持续时间
                 existing_record = seen_flows[flow_key]
-                # Ensure 'End Time' exists in both records
                 if 'End Time' in record and 'End Time' in existing_record:
                     time_diff = record['Start Time'] - existing_record['End Time']
                     if abs(time_diff) <= time_threshold:
@@ -204,13 +223,12 @@ def extract_tcp_flows(pcap_files, output_file, time_threshold=10):
 
                         # 计算新的持续时间
                         new_duration = existing_record['Duration (s)'] + (
-                                record['End Time'] - existing_record['Start Time'])
+                                    record['End Time'] - existing_record['Start Time'])
                         existing_record['Duration (s)'] = new_duration
 
                         # 计算传输速率
                         if new_duration > 0:
-                            existing_record['Transfer Rate (B/s)'] = float(
-                                existing_record['Total Bytes'] / new_duration)
+                            existing_record['Transfer Rate (B/s)'] = float(existing_record['Total Bytes'] / new_duration)
                         else:
                             existing_record['Transfer Rate (B/s)'] = 0.0
 
@@ -242,9 +260,8 @@ def extract_tcp_flows(pcap_files, output_file, time_threshold=10):
         df = pd.DataFrame(final_records)
         df.to_excel(output_file, index=False)
 
-
 if __name__ == "__main__":
     folder_path = 'E:/Tor网络流量检测内容/MyFlowProject/testflows'
     pcap_files = glob.glob(f'{folder_path}/**/log.pcap.*', recursive=True)
-    output_file = 'output.xlsx'  # 输出文件路径
+    output_file = 'E:/Tor网络流量检测内容/MyFlowProject/output.xlsx'  # Specify full path
     extract_tcp_flows(pcap_files, output_file)
