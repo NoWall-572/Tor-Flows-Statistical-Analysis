@@ -190,31 +190,36 @@ def extract_tcp_flows(pcap_files, output_file, time_threshold=10):
             else:
                 # 合并包数和持续时间
                 existing_record = seen_flows[flow_key]
-                time_diff = record['Start Time'] - existing_record['End Time']
-                if abs(time_diff) <= time_threshold:
-                    # 合并包数
-                    existing_record['Forward Packet Count'] += record['Forward Packet Count']
-                    existing_record['Reverse Packet Count'] += record['Reverse Packet Count']
-                    existing_record['Total Packet Count'] += record['Total Packet Count']
-                    existing_record['Forward Bytes'] += record['Forward Bytes']
-                    existing_record['Reverse Bytes'] += record['Reverse Bytes']
-                    existing_record['Total Bytes'] += record['Total Bytes']
+                # Ensure 'End Time' exists in both records
+                if 'End Time' in record and 'End Time' in existing_record:
+                    time_diff = record['Start Time'] - existing_record['End Time']
+                    if abs(time_diff) <= time_threshold:
+                        # 合并包数
+                        existing_record['Forward Packet Count'] += record['Forward Packet Count']
+                        existing_record['Reverse Packet Count'] += record['Reverse Packet Count']
+                        existing_record['Total Packet Count'] += record['Total Packet Count']
+                        existing_record['Forward Bytes'] += record['Forward Bytes']
+                        existing_record['Reverse Bytes'] += record['Reverse Bytes']
+                        existing_record['Total Bytes'] += record['Total Bytes']
 
-                    # 计算新的持续时间
-                    new_duration = existing_record['Duration (s)'] + (
+                        # 计算新的持续时间
+                        new_duration = existing_record['Duration (s)'] + (
                                 record['End Time'] - existing_record['Start Time'])
-                    existing_record['Duration (s)'] = new_duration
+                        existing_record['Duration (s)'] = new_duration
 
-                    # 计算传输速率
-                    if new_duration > 0:
-                        existing_record['Transfer Rate (B/s)'] = float(existing_record['Total Bytes'] / new_duration)
+                        # 计算传输速率
+                        if new_duration > 0:
+                            existing_record['Transfer Rate (B/s)'] = float(
+                                existing_record['Total Bytes'] / new_duration)
+                        else:
+                            existing_record['Transfer Rate (B/s)'] = 0.0
+
+                        # 合并源文件
+                        existing_record['Source File'] += f", {record['Source File']}"
+                        # 更新结束时间
+                        existing_record['End Time'] = max(record['End Time'], existing_record['End Time'])
                     else:
-                        existing_record['Transfer Rate (B/s)'] = 0.0
-
-                    # 合并源文件
-                    existing_record['Source File'] += f", {record['Source File']}"
-                    # 更新结束时间
-                    existing_record['End Time'] = max(record['End Time'], existing_record['End Time'])
+                        seen_flows[flow_key] = record
                 else:
                     seen_flows[flow_key] = record
 
@@ -223,13 +228,15 @@ def extract_tcp_flows(pcap_files, output_file, time_threshold=10):
 
         # 转换时间戳为北京时间
         for record in final_records:
-            record['Start Time (Beijing)'] = timestamp_to_beijing(record['Start Time'])
-            record['End Time (Beijing)'] = timestamp_to_beijing(record['End Time'])
+            if 'Start Time' in record and 'End Time' in record:
+                record['Start Time (Beijing)'] = timestamp_to_beijing(record['Start Time'])
+                record['End Time (Beijing)'] = timestamp_to_beijing(record['End Time'])
 
         # 删除原始的时间戳列
         for record in final_records:
-            del record['Start Time']
-            del record['End Time']
+            if 'Start Time' in record and 'End Time' in record:
+                del record['Start Time']
+                del record['End Time']
 
         # 将数据写入 Excel
         df = pd.DataFrame(final_records)
